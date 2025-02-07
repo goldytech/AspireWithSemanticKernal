@@ -1,7 +1,9 @@
 using Azure.AI.OpenAI;
 using Azure.Identity;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.OpenApi.Models;
 using Microsoft.SemanticKernel;
+using Microsoft.SemanticKernel.ChatCompletion;
 using OpenAI.Chat;
 using Scalar.AspNetCore;
 
@@ -13,7 +15,6 @@ builder.AddServiceDefaults();
 // Add services to the container.
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi("v1");
-
 // Extract AzureOpenAI Connection String from Environment Variable
 var azureOpenAiConnStr = builder.Configuration["AZ_OPENAI_CONNSTR"];
 // Extract the Endpoint and Key from the Connection String Eg Endpoint=https://{openai endpoint}.openai.azure.com/;Key={ApiKey}
@@ -27,7 +28,6 @@ if (azureOpenAiConnStr != null)
     });
 
     builder.Services.AddKernel()
-    
         .AddAzureOpenAIChatCompletion("gpt-4o", endpoint,apiKey)
         .ConfigureOpenTelemetry(builder.Configuration);
 
@@ -50,6 +50,21 @@ if (app.Environment.IsDevelopment())
     app.MapScalarApiReference(options =>
     {
         options.Title = "Weather Forecast API";
+        var serversList = new List<ScalarServer>
+        {
+            
+            new(app.Urls.FirstOrDefault()!)
+          
+        };
+        
+         
+        options.Servers = serversList;
+        
+    });
+    
+    app.UseSwaggerUI(o =>
+    {
+        o.SwaggerEndpoint("/openapi/v1.json", "OpenAPI v1");
         
     });
     
@@ -81,12 +96,31 @@ app.MapPost("/chat", async (HttpContext context, [FromServices]AzureOpenAIClient
     var chatClient = client.GetChatClient("gpt-4o");
     var messages = new List<ChatMessage>
     {
+        new SystemChatMessage("You are helpful assistant"),
         new UserChatMessage(prompt.Prompt)
     };
     var response = await chatClient.CompleteChatAsync(messages);
+    messages.Add(new AssistantChatMessage(response.Value.Content[0].Text));
     return response.Value.Content[0].Text;
 }).WithName("Chat");
 
+
+app.MapPost("/chat2", async (HttpContext context,[FromServices]Kernel kernel, UserPrompt prompt) =>
+{
+    ChatHistory chatHistory = [];
+    chatHistory.AddSystemMessage("You are helpful assistant");
+    chatHistory.AddUserMessage(prompt.Prompt);
+   
+    var chatCompletionService = kernel.Services.GetRequiredService<IChatCompletionService>();
+    var response = await chatCompletionService.GetChatMessageContentAsync(chatHistory,kernel:kernel);
+    chatHistory.AddAssistantMessage(response.Content!);
+    return response.Content!;
+    
+    
+
+    
+
+}).WithName("Chat2");
 
 app.Run();
 
